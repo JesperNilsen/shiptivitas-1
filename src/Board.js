@@ -2,25 +2,43 @@ import React from 'react';
 import Dragula from 'dragula';
 import 'dragula/dist/dragula.css';
 import Swimlane from './Swimlane';
+import { LANES, initialLanes, moveClient } from './boardState';
 import './Board.css';
 
 export default class Board extends React.Component {
   constructor(props) {
     super(props);
-    const clients = this.getClients();
     this.state = {
-      clients: {
-        backlog: clients.filter(client => !client.status || client.status === 'backlog'),
-        inProgress: clients.filter(client => client.status && client.status === 'in-progress'),
-        complete: clients.filter(client => client.status && client.status === 'complete'),
-      }
-    }
-    this.swimlanes = {
-      backlog: React.createRef(),
-      inProgress: React.createRef(),
-      complete: React.createRef(),
-    }
+      clients: initialLanes(this.getClients()),
+    };
+    this.swimlanes = {};
+    LANES.forEach(lane => { this.swimlanes[lane.key] = React.createRef(); });
   }
+
+  componentDidMount() {
+    this.drake = Dragula(LANES.map(lane => this.swimlanes[lane.key].current));
+    this.drake.on('drop', (el, target, source, sibling) => this.handleDrop(el, target, sibling));
+  }
+
+  componentWillUnmount() {
+    this.drake.destroy();
+  }
+
+  // Dragula has already moved the DOM node. Read where it landed, put the DOM back
+  // with cancel(true), then let React re-render from state, so React stays the only
+  // owner of the DOM. Order matters: setState outside a React event renders
+  // synchronously, and it must not run against Dragula's moved nodes.
+  handleDrop(el, target, sibling) {
+    const lane = LANES.find(l => this.swimlanes[l.key].current === target);
+    const clientId = el.dataset.id;
+    const beforeId = sibling ? sibling.dataset.id : null;
+    this.drake.cancel(true);
+    if (!lane) return;
+    this.setState(state => ({
+      clients: moveClient(state.clients, clientId, lane.key, beforeId),
+    }));
+  }
+
   getClients() {
     return [
       ['1','Stark, White and Abbott','Cloned Optimal Architecture', 'in-progress'],
@@ -61,15 +79,11 @@ export default class Board extends React.Component {
       <div className="Board">
         <div className="container-fluid">
           <div className="row">
-            <div className="col-md-4">
-              {this.renderSwimlane('Backlog', this.state.clients.backlog, this.swimlanes.backlog)}
-            </div>
-            <div className="col-md-4">
-              {this.renderSwimlane('In Progress', this.state.clients.inProgress, this.swimlanes.inProgress)}
-            </div>
-            <div className="col-md-4">
-              {this.renderSwimlane('Complete', this.state.clients.complete, this.swimlanes.complete)}
-            </div>
+            {LANES.map(lane => (
+              <div className="col-md-4" key={lane.key}>
+                {this.renderSwimlane(lane.title, this.state.clients[lane.key], this.swimlanes[lane.key])}
+              </div>
+            ))}
           </div>
         </div>
       </div>
